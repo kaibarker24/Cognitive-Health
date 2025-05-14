@@ -391,7 +391,7 @@
     <script>
         let rawData = [];
         let filteredData = [];
-        let currentXAttr = "Age";
+        let currentX = "Age";
         const heatmapMargin = {top: 40, right: 30, bottom: 60, left: 60};
         const heatmapWidth = 600 - heatmapMargin.left - heatmapMargin.right;
         const heatmapHeight = 350 - heatmapMargin.top - heatmapMargin.bottom;
@@ -407,7 +407,7 @@
             }));
             
             initHeatmap();
-            setupEventListeners();
+            updateCall();
             
             d3.select("#x-axis").on("change", updateHeatmap);
             d3.select("#stress-slider").on("input", function() {
@@ -443,37 +443,36 @@
 
         function updateHeatmap() {
             const stressThreshold = +d3.select("#stress-slider").property("value");
-            currentXAttr = d3.select("#x-axis").property("value");
+            currentX = d3.select("#x-axis").property("value");
             const filtered = rawData.filter(d => d.Stress_Level >= stressThreshold);
             
             d3.select("#heatmap svg g").selectAll("*").remove();
             
             const xScale = d3.scaleLinear()
-                .domain(d3.extent(filtered, d => d[currentXAttr]))
+                .domain(d3.extent(filtered, d => d[currentX]))
                 .range([0, heatmapWidth]);
             
             const yScale = d3.scaleLinear()
                 .domain([100,0])
                 .range([0, heatmapHeight]);
             
-            const gridSize = 15;
-            const xBins = Math.floor(heatmapWidth / gridSize);
-            const yBins = Math.floor(heatmapHeight / gridSize);
+            const columns = Math.floor(heatmapWidth / 15);
+            const rows = Math.floor(heatmapHeight / 15);
             
-            const xBin = d3.scaleLinear()
+            const columnMap = d3.scaleLinear()
                 .domain(xScale.domain())
-                .rangeRound([0, xBins]);
+                .rangeRound([0, columns]);
             
-            const yBin = d3.scaleLinear()
+            const rowMap = d3.scaleLinear()
                 .domain(yScale.domain())
-                .rangeRound([0, yBins]);
+                .rangeRound([0, rows]);
             
-            const bins = Array.from({length: xBins * yBins}, () => []);
+            const bins = Array.from({length: columns * rows}, () => []);
             
             filtered.forEach(d => {
-                const x = xBin(d[currentXAttr]);
-                const y = yBin(d.Cognitive_Score);
-                const i = y * xBins + x;
+                const x = columnMap(d[currentX]);
+                const y = rowMap(d.Cognitive_Score);
+                const i = y * columns + x;
                 if (i >= 0 && i < bins.length) bins[i].push(d);
             });
             
@@ -487,19 +486,18 @@
                 .data(bins)
                 .enter().append("rect")
                 .attr("class", "cell")
-                .attr("x", (d, i) => (i % xBins) * gridSize)
-                .attr("y", (d, i) => Math.floor(i / xBins) * gridSize)
-                .attr("width", gridSize - 1)
-                .attr("height", gridSize - 1)
+                .attr("x", (d, i) => (i % columns) * 15)
+                .attr("y", (d, i) => Math.floor(i / columns) * 15)
+                .attr("width", 14)
+                .attr("height", 14)
                 .attr("fill", d => d.length ? colorScale(d.length) : "#333333")
                 .on("mouseover", function(event, d, i) {
                     if (d.length) {
                         tooltip.style("opacity", 1)
-                            .html(`<strong>Count: ${d.length}</strong><br>
-                                   ${currentXAttr}: ${d[0][currentXAttr].toFixed(2)}<br>
-                                   Score: ${d[0].Cognitive_Score.toFixed(2)}`)
-                            .style("left", `${event.pageX + 20}px`)
-                            .style("top", `${event.pageY - 35}px`);
+                            .html(`Count: ${d.length}<br>${currentX}: ${d[0][currentX].toFixed(2)}<br>
+                                Score: ${d[0].Cognitive_Score.toFixed(2)}`)
+                            .style("left", `${event.pageX + 10}px`)
+                            .style("top", `${event.pageY - 30}px`);
                     }
                 })
                 .on("mouseout", function() {
@@ -517,7 +515,7 @@
                 .attr("y", 40)
                 .attr("fill", "white")
                 .attr("text-anchor", "middle")
-                .text(currentXAttr);
+                .text(currentX);
                 
             d3.select("#heatmap svg g").append("g")
                 .call(yAxis)
@@ -533,6 +531,7 @@
         function estimateCognitiveScore(inputs) {
             const { age, sleep, stress, screenTime, caffeine } = inputs;
             
+            // Had help in fine tuning weighting function, see appendix
             const similarPoints = rawData.filter(d => {
                 return Math.abs(d.Age - age) <= 5 &&          
                     Math.abs(d.Sleep_Duration - sleep) <= 1 && 
@@ -558,13 +557,7 @@
             
             estimatedScore += weights.age * (age - 30);
             
-            if (sleep < 6) {
-                estimatedScore += weights.sleep * (sleep - 6) * 2; 
-            } else if (sleep > 9) {
-                estimatedScore += weights.sleep * (9 - sleep); 
-            } else {
-                estimatedScore += weights.sleep * 3; 
-            }
+            estimatedScore += weights.sleep * sleep;
             
             estimatedScore += weights.stress * stress;
             
@@ -576,7 +569,8 @@
             
             return Math.min(100, Math.max(0, Math.round(estimatedScore)));
         }
-
+        
+        // See above pathing comment
         function animateBrainFill(score) {
             // Calculate the fill height based on score (0-100)
             const fillHeight = 200 * (1 - score/100); // Invert because SVG y increases downward
@@ -608,7 +602,7 @@
 
         }
 
-        function setupEventListeners() {
+        function updateCall() {
             d3.select("#x-axis").on("change", updateHeatmap);
             d3.select("#stress-slider").on("input", function() {
                 d3.select("#stress-value").text(this.value);
